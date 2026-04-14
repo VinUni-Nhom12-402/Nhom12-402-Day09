@@ -77,7 +77,7 @@ retrieval_worker:
       items:
         text: string
         source: string
-        score: float  # 0.0 - 1.0 (cosine similarity)
+        score: float # 0.0 - 1.0 (cosine similarity)
         metadata: object
     retrieved_sources:
       type: array
@@ -96,7 +96,7 @@ retrieval_worker:
     - "Score phải là float trong khoảng [0, 1]"
     - "Stateless: không đọc hoặc ghi state ngoài những gì được khai báo ở trên"
   actual_implementation:
-    status: "done"  # Update to "done" khi xong
+    status: "done" # Update to "done" khi xong
     notes: ""
 
 # ─────────────────────────────────────────────
@@ -137,8 +137,8 @@ policy_tool_worker:
           items:
             type: object
             properties:
-              type: string  # e.g., "flash_sale_exception"
-              rule: string  # Câu policy rule cụ thể
+              type: string # e.g., "flash_sale_exception"
+              rule: string # Câu policy rule cụ thể
               source: string
         source:
           type: array
@@ -176,46 +176,111 @@ policy_tool_worker:
 synthesis_worker:
   name: synthesis_worker
   file: workers/synthesis.py
-  description: "Tổng hợp câu trả lời từ evidence. Gọi LLM với grounded prompt."
+  description: "Tổng hợp câu trả lời từ evidence. Gọi LLM với grounded prompt. Stateless — test độc lập được."
   input:
     task:
       type: string
       required: true
+      description: "Câu hỏi cần trả lời"
     retrieved_chunks:
       type: array
       required: false
-      description: "Evidence từ retrieval_worker"
+      default: []
+      description: "Evidence chunks từ retrieval_worker"
+      items:
+        text: string
+        source: string
+        score: number # 0.0 - 1.0
     policy_result:
       type: object
       required: false
+      default: {}
       description: "Policy check result từ policy_tool_worker"
+      properties:
+        policy_applies: boolean
+        exceptions_found:
+          type: array
+          items:
+            type: object
+            properties:
+              type: string
+              rule: string
+    workers_called:
+      type: array
+      required: false
+      description: "Danh sách workers đã chạy (worker tự append tên mình vào)"
+    history:
+      type: array
+      required: false
+      description: "Log chuỗi sự kiện của pipeline (worker tự append)"
   output:
     final_answer:
       type: string
       required: true
-      description: "Câu trả lời cuối có citation"
+      description: "Câu trả lời cuối có citation [source_name]"
     sources:
       type: array
       required: true
-      description: "Sources được cite trong answer"
+      description: "Unique list of source filenames được cite"
     confidence:
-      type: float
+      type: number
       required: true
-      description: "Mức độ tin cậy 0.0-1.0"
+      description: "Mức độ tin cậy 0.0-1.0 (weighted avg chunk scores, trừ exception penalty)"
+    hitl_triggered:
+      type: boolean
+      required: true
+      description: "True nếu confidence < 0.4 → cần human review"
+    workers_called:
+      type: array
+      required: true
+      description: "Append 'synthesis_worker' vào list"
+    history:
+      type: array
+      required: true
+      description: "Append log entry: confidence, sources, hitl_triggered"
     worker_io_logs:
       type: array
       required: true
+      description: "Append worker IO log object vào array"
+      items:
+        worker: string
+        input:
+          task: string
+          chunks_count: integer
+          has_policy: boolean
+        output:
+          answer_length: integer
+          sources: array
+          confidence: number
+          hitl_triggered: boolean
+        error: object | null # null nếu thành công
+  llm_config:
+    primary: "gpt-4o-mini (OpenAI)"
+    fallback: "gemini-1.5-flash (Google)"
+    temperature: 0.1
+    max_tokens: 500
+    note: "Thử OpenAI trước, fallback sang Gemini nếu lỗi"
+  confidence_logic:
+    no_chunks: 0.1
+    abstain_keywords: ["Không đủ thông tin", "không có trong tài liệu"]
+    abstain_score: 0.3
+    formula: "min(0.95, avg_chunk_score - 0.05 * len(exceptions_found))"
+    clamp_min: 0.1
   error_format:
     code: "SYNTHESIS_FAILED"
     reason: string
+    side_effects:
+      final_answer: "SYNTHESIS_ERROR: <reason>"
+      confidence: 0.0
   constraints:
-    - "Phải có citation [1] hoặc [source_name] trong answer nếu có chunks"
-    - "Nếu retrieved_chunks=[] → phải abstain, không hallucinate"
-    - "confidence < 0.4 → khuyến khích set hitl_triggered=True"
-    - "Không được dùng kiến thức ngoài context được cung cấp"
+    - "Phải có citation [source_name] trong answer nếu retrieved_chunks không rỗng"
+    - "Nếu retrieved_chunks=[] → abstain, KHÔNG hallucinate"
+    - "confidence < 0.4 → set hitl_triggered=True"
+    - "Không được dùng kiến thức ngoài context được cung cấp (grounded only)"
+    - "Stateless: không đọc hoặc ghi state ngoài những gì được khai báo ở trên"
   actual_implementation:
     status: "done"
-    notes: ""
+    notes: "LLM call qua _call_llm() với fallback chain. Confidence tính bằng _estimate_confidence()."
 
 # ─────────────────────────────────────────────
 # MCP Server
@@ -228,15 +293,15 @@ mcp_server:
   tools:
     search_kb:
       input:
-        query: string  # required
-        top_k: integer  # default: 3
+        query: string # required
+        top_k: integer # default: 3
       output:
         chunks: array
         sources: array
         total_found: integer
     get_ticket_info:
       input:
-        ticket_id: string  # required (e.g., "P1-LATEST", "IT-1234")
+        ticket_id: string # required (e.g., "P1-LATEST", "IT-1234")
       output:
         ticket_id: string
         priority: string
@@ -247,9 +312,9 @@ mcp_server:
         notifications_sent: array
     check_access_permission:
       input:
-        access_level: integer  # 1, 2, hoặc 3
+        access_level: integer # 1, 2, hoặc 3
         requester_role: string
-        is_emergency: boolean  # default: false
+        is_emergency: boolean # default: false
       output:
         can_grant: boolean
         required_approvers: array
@@ -258,7 +323,7 @@ mcp_server:
         source: string
     create_ticket:
       input:
-        priority: string  # P1, P2, P3, P4
+        priority: string # P1, P2, P3, P4
         title: string
         description: string
       output:
