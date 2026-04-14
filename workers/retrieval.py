@@ -52,7 +52,7 @@ _cached_embed_fn = None
 
 def _get_embedding_fn():
     """
-    Trả về embedding function. Lazy-load caching để không load lại weights nhiều lần.
+    Trả về (embed_fn, backend_name). Lazy-load caching để không load lại weights nhiều lần.
     """
     global _cached_embed_fn
     if _cached_embed_fn is not None:
@@ -65,12 +65,12 @@ def _get_embedding_fn():
         import logging
         logging.getLogger("sentence_transformers").setLevel(logging.ERROR)
         logging.getLogger("transformers").setLevel(logging.ERROR)
-        
+
         from sentence_transformers import SentenceTransformer
         model = SentenceTransformer("all-MiniLM-L6-v2")
         def embed(text: str) -> list:
             return model.encode([text])[0].tolist()
-        _cached_embed_fn = embed
+        _cached_embed_fn = (embed, "sentence-transformers/all-MiniLM-L6-v2")
         return _cached_embed_fn
     except ImportError:
         pass
@@ -82,7 +82,7 @@ def _get_embedding_fn():
         def embed(text: str) -> list:
             resp = client.embeddings.create(input=text, model="text-embedding-3-small")
             return resp.data[0].embedding
-        return embed
+        return (embed, "openai/text-embedding-3-small")
     except ImportError:
         pass
 
@@ -90,8 +90,8 @@ def _get_embedding_fn():
     import random
     def embed(text: str) -> list:
         return [random.random() for _ in range(384)]
-    print("⚠️  WARNING: Using random embeddings (test only). Install sentence-transformers.")
-    return embed
+    print("WARNING: Using random embeddings (test only). Install sentence-transformers.")
+    return (embed, "random-fallback")
 
 
 # ─────────────────────────────────────────────
@@ -144,8 +144,7 @@ def retrieve_dense(
                       "query_top_k": int, "returned": int}
     """
     # 3.1  Embed
-    embed_fn = _get_embedding_fn()
-    embed_backend = "unknown"
+    embed_fn, embed_backend = _get_embedding_fn()
     query_vector = embed_fn(query)
 
     # 3.2  Connect collection
@@ -171,6 +170,8 @@ def retrieve_dense(
     )
 
     # 3.4  Parse — score = 1 − cosine_distance  →  [0, 1]
+    # Chỉ giữ chunks có score >= 0.01 (loại bỏ docs hoàn toàn không liên quan)
+    SCORE_THRESHOLD = 0.04
     chunks: list[dict] = []
     docs      = results.get("documents", [[]])[0]
     distances = results.get("distances",  [[]])[0]
@@ -178,13 +179,14 @@ def retrieve_dense(
 
     for doc, dist, meta in zip(docs, distances, metadatas):
         score = round(float(1.0 - dist), 4)
-        score = max(0.0, min(1.0, score))   # clamp [0, 1] — tránh float noise
-        chunks.append({
-            "text"    : doc,
-            "source"  : meta.get("source", "unknown"),
-            "score"   : score,
-            "metadata": meta,
-        })
+        score = max(0.0, min(1.0, score))
+        if score >= SCORE_THRESHOLD:
+            chunks.append({
+                "text"    : doc,
+                "source"  : meta.get("source", "unknown"),
+                "score"   : score,
+                "metadata": meta,
+            })
 
     return chunks, {
         "embed_backend"   : embed_backend,

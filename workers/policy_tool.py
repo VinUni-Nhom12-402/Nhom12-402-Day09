@@ -30,40 +30,34 @@ WORKER_NAME = "policy_tool_worker"
 # MCP Client — Sprint 3: Thay bằng real MCP call
 # ─────────────────────────────────────────────
 
-async def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
+async def _call_mcp_tool(tool_name: str, tool_input: dict, server_url: str = "http://localhost:8000") -> dict:
     """
-    Gọi MCP tool.
-
-    Sprint 3 TODO: Implement bằng cách import mcp_server hoặc gọi HTTP.
-
-    Hiện tại: Import trực tiếp từ mcp_server.py (trong-process mock).
+    Gọi MCP tool qua HTTP (Sprint 3: real MCP server).
+    Hiện tại dùng httpx để gọi REST endpoint của mcp_server.
     """
     from datetime import datetime
-
     try:
-        # Khởi tạo HTTP Client và Session
-        async with HttpClient(server_url) as client:
-            async with ClientSession(client) as session:
-                # Initialize session trước khi gọi tool
-                await session.initialize()
-
-                # Gọi tool thông qua session chuẩn của MCP
-                result = await session.call_tool(tool_name, tool_input)
-
-                return {
-                    "tool": tool_name,
-                    "input": tool_input,
-                    "output": result.content, # MCP trả về content list
-                    "error": None,
-                    "timestamp": datetime.now().isoformat(),
-                }
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                f"{server_url}/tools/call",
+                json={"tool_name": tool_name, "tool_input": tool_input},
+            )
+            resp.raise_for_status()
+            return {
+                "tool": tool_name,
+                "input": tool_input,
+                "output": resp.json(),
+                "error": None,
+                "timestamp": datetime.now().isoformat(),
+            }
     except Exception as e:
+        from datetime import datetime as _dt
         return {
             "tool": tool_name,
             "input": tool_input,
             "output": None,
             "error": {"code": "MCP_HTTP_CALL_FAILED", "reason": str(e)},
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": _dt.now().isoformat(),
         }
 
 

@@ -33,7 +33,12 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import sys
 
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 # ─────────────────────────────────────────────
 # Tool Definitions (Schema Discovery)
 # Giống với cách MCP server expose tool list cho client
@@ -144,7 +149,7 @@ def tool_search_kb(query: str, top_k: int = 3) -> dict:
         import sys
         sys.path.insert(0, os.path.dirname(__file__))
         from workers.retrieval import retrieve_dense
-        chunks = retrieve_dense(query, top_k=top_k)
+        chunks, _ = retrieve_dense(query, top_k=top_k)
         sources = list({c["source"] for c in chunks})
         return {
             "chunks": chunks,
@@ -361,8 +366,8 @@ try:
 
     if __name__ == "__main__":
         print("=" * 60)
-        print("🚀 Khởi động MCP FastAPI Server")
-        print("🌐 Truy cập: http://localhost:8000/docs để xem API UI")
+        print(" Khởi động MCP FastAPI Server")
+        print(" Truy cập: http://localhost:8000/docs để xem API UI")
         print("=" * 60)
         uvicorn.run("mcp_server:app", host="0.0.0.0", port=8000, reload=True)
 
@@ -372,17 +377,17 @@ except ImportError:
     # ─────────────────────────────────────────────
     if __name__ == "__main__":
         print("=" * 60)
-        print("⚠️ FastAPI/Uvicorn chưa được cài đặt. Đang chạy ở chế độ TEST mặc định.")
-        print("👉 Vui lòng: pip install fastapi uvicorn")
+        print(" FastAPI/Uvicorn chưa được cài đặt. Đang chạy ở chế độ TEST mặc định.")
+        print(" Vui lòng: pip install fastapi uvicorn")
         print("=" * 60)
 
         # 1. Discover tools
-        print("\n📋 Available Tools:")
+        print("\n Available Tools:")
         for tool in list_tools():
             print(f"  • {tool['name']}: {tool['description'][:60]}...")
 
         # 2. Test search_kb
-        print("\n🔍 Test: search_kb")
+        print("\n Test: search_kb")
         result = dispatch_tool("search_kb", {"query": "SLA P1 resolution time", "top_k": 2})
         if result.get("chunks"):
             for c in result["chunks"]:
@@ -391,14 +396,14 @@ except ImportError:
             print(f"  Result: {result}")
 
         # 3. Test get_ticket_info
-        print("\n🎫 Test: get_ticket_info")
+        print("\n Test: get_ticket_info")
         ticket = dispatch_tool("get_ticket_info", {"ticket_id": "P1-LATEST"})
         print(f"  Ticket: {ticket.get('ticket_id')} | {ticket.get('priority')} | {ticket.get('status')}")
         if ticket.get("notifications_sent"):
             print(f"  Notifications: {ticket['notifications_sent']}")
 
         # 4. Test check_access_permission
-        print("\n🔐 Test: check_access_permission (Level 3, emergency)")
+        print("\n Test: check_access_permission (Level 3, emergency)")
         perm = dispatch_tool("check_access_permission", {
             "access_level": 3,
             "requester_role": "contractor",
@@ -410,9 +415,9 @@ except ImportError:
         print(f"  notes: {perm.get('notes')}")
 
         # 5. Test invalid tool
-        print("\n❌ Test: invalid tool")
+        print("\n Test: invalid tool")
         err = dispatch_tool("nonexistent_tool", {})
         print(f"  Error: {err.get('error')}")
 
-        print("\n✅ MCP server test done.")
+        print("\n MCP server test done.")
         print("\nTODO Sprint 3: Implement HTTP server nếu muốn bonus +2.")

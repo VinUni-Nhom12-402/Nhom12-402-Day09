@@ -17,8 +17,14 @@ Gọi độc lập để test:
 """
 
 import os
+import sys
 from dotenv import load_dotenv
 load_dotenv()
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 
 WORKER_NAME = "synthesis_worker"
 
@@ -96,8 +102,6 @@ def _estimate_confidence(chunks: list, answer: str, policy_result: dict) -> floa
     - Số lượng và quality của chunks
     - Có exceptions không
     - Answer có abstain không
-
-    TODO Sprint 2: Có thể dùng LLM-as-Judge để tính confidence chính xác hơn.
     """
     if not chunks:
         return 0.1  # Không có evidence → low confidence
@@ -105,16 +109,22 @@ def _estimate_confidence(chunks: list, answer: str, policy_result: dict) -> floa
     if "Không đủ thông tin" in answer or "không có trong tài liệu" in answer.lower():
         return 0.3  # Abstain → moderate-low
 
-    # Weighted average của chunk scores
-    if chunks:
-        avg_score = sum(c.get("score", 0) for c in chunks) / len(chunks)
+    # Dùng score cao nhất (best chunk) thay vì average
+    # Score từ ChromaDB là cosine similarity trên full-doc, thường thấp (0.05–0.3)
+    # Normalize về [0.5, 0.95] khi có chunks hợp lệ
+    best_score = max(c.get("score", 0) for c in chunks)
+
+    if best_score >= 0.15:
+        base = 0.8
+    elif best_score >= 0.05:
+        base = 0.65
     else:
-        avg_score = 0
+        base = 0.5   # Có chunks nhưng score rất thấp
 
     # Penalty nếu có exceptions (phức tạp hơn)
     exception_penalty = 0.05 * len(policy_result.get("exceptions_found", []))
 
-    confidence = min(0.95, avg_score - exception_penalty)
+    confidence = min(0.95, base - exception_penalty)
     return round(max(0.1, confidence), 2)
 
 
