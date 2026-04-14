@@ -40,7 +40,7 @@ from typing import Any
 WORKER_NAME    = "retrieval_worker"
 CHROMA_PATH    = "./chroma_db"
 COLLECTION_NAME = "day09_docs"
-DEFAULT_TOP_K  = 3
+DEFAULT_TOP_K  = 5
 EMBED_DIM      = 384          # all-MiniLM-L6-v2 dimension
 
 
@@ -126,12 +126,31 @@ def _get_chroma_collection():
 # 3. Dense Retrieval — core logic
 # ─────────────────────────────────────────────
 
+def _keyword_score(text: str, query_terms: list) -> float:
+    """Tính keyword overlap score (0-1) giữa text và query terms."""
+    if not query_terms:
+        return 0.0
+    text_lower = text.lower()
+    matches = sum(1 for t in query_terms if t in text_lower)
+    return matches / len(query_terms)
+
+
+def _extract_terms(query: str) -> list:
+    """Tách query thành list các từ/cụm từ có nghĩa (loại stop words ngắn)."""
+    stop = {"và", "của", "là", "có", "không", "theo", "để", "từ", "trong",
+            "đến", "cho", "với", "khi", "sau", "trước", "được", "phải",
+            "một", "các", "này", "đó", "bao", "nhiêu", "mấy", "ai", "gì"}
+    words = [w.strip("?.,!:;\"'") for w in query.lower().split()]
+    return [w for w in words if len(w) >= 3 and w not in stop]
+
+
 def retrieve_dense(
     query: str,
     top_k: int = DEFAULT_TOP_K,
 ) -> tuple[list[dict], dict]:
     """
     Embed query rồi query ChromaDB, trả về top_k chunks.
+    Có keyword fallback: bổ sung chunk có keyword match cao nếu dense miss.
 
     Args:
         query : câu hỏi / search query
@@ -162,7 +181,7 @@ def retrieve_dense(
             "returned": 0,
         }
 
-    # 3.3  Query
+    # 3.3  Dense query
     results = collection.query(
         query_embeddings=[query_vector],
         n_results=effective_k,
@@ -170,7 +189,6 @@ def retrieve_dense(
     )
 
     # 3.4  Parse — score = 1 − cosine_distance  →  [0, 1]
-    # Giữ chunks có score >= threshold, nhưng luôn giữ ít nhất top-1
     SCORE_THRESHOLD = 0.04
     chunks: list[dict] = []
     docs      = results.get("documents", [[]])[0]
@@ -192,6 +210,38 @@ def retrieve_dense(
         top = chunks[0]
         rest = [c for c in chunks[1:] if c["score"] >= SCORE_THRESHOLD]
         chunks = [top] + rest
+
+    # 3.5  Keyword fallback — bổ sung chunk có keyword match cao bị dense miss
+    # Mục đích: xử lý trường hợp model tiếng Anh (MiniLM) miss câu tiếng Việt cụ thể
+    try:
+        query_terms = _extract_terms(query)
+        if query_terms and total_docs <= 200:  # chỉ chạy với corpus nhỏ
+            all_data = collection.get(include=["documents", "metadatas"])
+            all_docs  = all_data.get("documents", [])
+            all_metas = all_data.get("metadatas", [])
+            all_ids   = all_data.get("ids", [])
+
+            # IDs đã có trong dense results
+            dense_texts = {c["text"] for c in chunks}
+
+            keyword_candidates = []
+            for doc, meta, did in zip(all_docs, all_metas, all_ids):
+                if doc in dense_texts:
+                    continue  # đã có rồi
+                ks = _keyword_score(doc, query_terms)
+                if ks >= 0.4:  # ít nhất 40% từ khoá match
+                    keyword_candidates.append({
+                        "text"    : doc,
+                        "source"  : meta.get("source", "unknown"),
+                        "score"   : round(ks * 0.6, 4),  # scale xuống để không vượt dense
+                        "metadata": meta,
+                    })
+
+            # Sắp xếp keyword candidates và thêm top-2 vào kết quả
+            keyword_candidates.sort(key=lambda x: x["score"], reverse=True)
+            chunks.extend(keyword_candidates[:2])
+    except Exception:
+        pass  # keyword fallback lỗi → không ảnh hưởng dense results
 
     return chunks, {
         "embed_backend"   : embed_backend,

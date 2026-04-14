@@ -26,6 +26,11 @@ sys.path.insert(0, os.path.dirname(__file__))
 from graph import run_graph, save_trace
 
 
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8")
 # ─────────────────────────────────────────────
 # 1. Run Pipeline on Test Questions
 # ─────────────────────────────────────────────
