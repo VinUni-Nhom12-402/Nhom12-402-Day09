@@ -170,7 +170,7 @@ def retrieve_dense(
     )
 
     # 3.4  Parse — score = 1 − cosine_distance  →  [0, 1]
-    # Chỉ giữ chunks có score >= 0.01 (loại bỏ docs hoàn toàn không liên quan)
+    # Giữ chunks có score >= threshold, nhưng luôn giữ ít nhất top-1
     SCORE_THRESHOLD = 0.04
     chunks: list[dict] = []
     docs      = results.get("documents", [[]])[0]
@@ -180,13 +180,18 @@ def retrieve_dense(
     for doc, dist, meta in zip(docs, distances, metadatas):
         score = round(float(1.0 - dist), 4)
         score = max(0.0, min(1.0, score))
-        if score >= SCORE_THRESHOLD:
-            chunks.append({
-                "text"    : doc,
-                "source"  : meta.get("source", "unknown"),
-                "score"   : score,
-                "metadata": meta,
-            })
+        chunks.append({
+            "text"    : doc,
+            "source"  : meta.get("source", "unknown"),
+            "score"   : score,
+            "metadata": meta,
+        })
+
+    # Luôn giữ top-1, sau đó lọc phần còn lại theo threshold
+    if len(chunks) > 1:
+        top = chunks[0]
+        rest = [c for c in chunks[1:] if c["score"] >= SCORE_THRESHOLD]
+        chunks = [top] + rest
 
     return chunks, {
         "embed_backend"   : embed_backend,

@@ -36,6 +36,8 @@ Quy tắc nghiêm ngặt:
 3. Trích dẫn nguồn cuối mỗi câu quan trọng: [tên_file].
 4. Trả lời súc tích, có cấu trúc. Không dài dòng.
 5. Nếu có exceptions/ngoại lệ → nêu rõ ràng trước khi kết luận.
+6. Nếu context có "CẢNH BÁO PHIÊN BẢN CHÍNH SÁCH" → DỪNG, không dùng tài liệu bên dưới để suy luận. Chỉ được trả lời: (a) phiên bản nào áp dụng, (b) tài liệu hiện tại không có phiên bản đó, (c) không thể xác nhận kết quả.
+7. TUYỆT ĐỐI không dùng nội dung v4 để suy ra v3 hoặc các phiên bản cũ hơn.
 """
 
 
@@ -77,18 +79,27 @@ def _build_context(chunks: list, policy_result: dict) -> str:
     """Xây dựng context string từ chunks và policy result."""
     parts = []
 
+    # ⚠️ Version note phải đứng ĐẦU — trước khi LLM thấy bất kỳ tài liệu nào
+    if policy_result and policy_result.get("policy_version_note"):
+        parts.append(
+            "=== CẢNH BÁO PHIÊN BẢN CHÍNH SÁCH ===\n"
+            f"⚠️  {policy_result['policy_version_note']}\n"
+            "⚠️  KHÔNG được dùng nội dung tài liệu bên dưới để suy diễn chính sách cũ.\n"
+            "⚠️  Phải trả lời: tài liệu hiện tại không có phiên bản này, không thể xác nhận."
+        )
+
+    if policy_result and policy_result.get("exceptions_found"):
+        parts.append("=== POLICY EXCEPTIONS ===")
+        for ex in policy_result["exceptions_found"]:
+            parts.append(f"- {ex.get('rule', '')}")
+
     if chunks:
-        parts.append("=== TÀI LIỆU THAM KHẢO ===")
+        parts.append("=== TÀI LIỆU THAM KHẢO (chỉ dùng nếu không có cảnh báo phiên bản ở trên) ===")
         for i, chunk in enumerate(chunks, 1):
             source = chunk.get("source", "unknown")
             text = chunk.get("text", "")
             score = chunk.get("score", 0)
             parts.append(f"[{i}] Nguồn: {source} (relevance: {score:.2f})\n{text}")
-
-    if policy_result and policy_result.get("exceptions_found"):
-        parts.append("\n=== POLICY EXCEPTIONS ===")
-        for ex in policy_result["exceptions_found"]:
-            parts.append(f"- {ex.get('rule', '')}")
 
     if not parts:
         return "(Không có context)"
