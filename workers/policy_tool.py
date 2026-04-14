@@ -31,7 +31,7 @@ WORKER_NAME = "policy_tool_worker"
 # MCP Client — Sprint 3: Thay bằng real MCP call
 # ─────────────────────────────────────────────
 
-def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
+async def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
     """
     Gọi MCP tool.
 
@@ -41,16 +41,16 @@ def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
     """
     from datetime import datetime
 
-     try:
+    try:
         # Khởi tạo HTTP Client và Session
         async with HttpClient(server_url) as client:
             async with ClientSession(client) as session:
                 # Initialize session trước khi gọi tool
                 await session.initialize()
-                
+
                 # Gọi tool thông qua session chuẩn của MCP
                 result = await session.call_tool(tool_name, tool_input)
-                
+
                 return {
                     "tool": tool_name,
                     "input": tool_input,
@@ -87,7 +87,7 @@ def analyze_policy(task: str, chunks: list) -> dict:
     Returns:
         dict with: policy_applies, policy_name, exceptions_found, source, rule, explanation
     """
-     task_lower = task.lower()
+    task_lower = task.lower()
     context_text = " ".join([c.get("text", "") for c in chunks]).lower()
 
     exceptions_found = []
@@ -140,29 +140,26 @@ def analyze_policy(task: str, chunks: list) -> dict:
     # analysis = response.choices[0].message.content
     from openai import OpenAI
 
-def analyze_with_llm(task: str, chunks: list) -> str:
-    client = OpenAI()
+    def analyze_with_llm(task: str, chunks: list) -> str:
+        client = OpenAI()
 
-    response = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[
-            {
-                "role": "system",
-                "content": "Bạn là policy analyst. Dựa vào context, xác định policy áp dụng và các exceptions."
-            },
-            {
-                "role": "user",
-                "content": f"Task: {task}\n\nContext:\n" + "\n".join([c['text'] for c in chunks])
-            }
-        ]
-    )
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Bạn là policy analyst. Dựa vào context, xác định policy áp dụng và các exceptions."
+                },
+                {
+                    "role": "user",
+                    "content": f"Task: {task}\n\nContext:\n" + "\n".join([c['text'] for c in chunks])
+                }
+            ]
+        )
 
-    # Truy cập nội dung trả về từ message
-    analysis = response.choices[0].message.content
-    return analysis
-
-
-
+        # Truy cập nội dung trả về từ message
+        analysis = response.choices[0].message.content
+        return analysis
     sources = list({c.get("source", "unknown") for c in chunks if c})
 
     return {
