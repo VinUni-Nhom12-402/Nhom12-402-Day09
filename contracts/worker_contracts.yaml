@@ -3,9 +3,9 @@
 # Supervisor và workers phải tuân theo contract này.
 #
 # Rule: Supervisor giữ quyết định luồng. Worker giữ domain skill.
-#       Contract là ranh giới rõ ràng giữa hai bên.
+#       Contract là ranh giới rõ ràng giữa hai bênn.
 #
-# TODO Sprint 2: Cập nhật "actual_implementation" khi đã xong.
+# TODO Sprint 2: Cập nhật "acctual_implementation" khi đã xong.
 
 version: "1.0"
 updated_at: "2026-04-13"
