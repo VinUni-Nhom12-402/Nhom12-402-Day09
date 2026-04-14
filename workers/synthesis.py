@@ -17,6 +17,8 @@ Gọi độc lập để test:
 """
 
 import os
+from dotenv import load_dotenv
+load_dotenv()
 
 WORKER_NAME = "synthesis_worker"
 
@@ -177,15 +179,18 @@ def run(state: dict) -> dict:
         state["final_answer"] = result["answer"]
         state["sources"] = result["sources"]
         state["confidence"] = result["confidence"]
+        state["hitl_triggered"] = result["confidence"] < 0.4
 
         worker_io["output"] = {
             "answer_length": len(result["answer"]),
             "sources": result["sources"],
             "confidence": result["confidence"],
+            "hitl_triggered": state["hitl_triggered"],
         }
         state["history"].append(
             f"[{WORKER_NAME}] answer generated, confidence={result['confidence']}, "
-            f"sources={result['sources']}"
+            # f"sources={result['sources']}"
+            f"sources={result['sources']}, hitl_triggered={state['hitl_triggered']}"
         )
 
     except Exception as e:
