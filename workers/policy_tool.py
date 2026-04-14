@@ -18,7 +18,11 @@ Gọi độc lập để test:
 
 import os
 import sys
+import re
 from typing import Optional
+import asyncio
+from mcp import ClientSession
+from mcp.client.http import HttpClient
 
 WORKER_NAME = "policy_tool_worker"
 
@@ -37,23 +41,29 @@ def _call_mcp_tool(tool_name: str, tool_input: dict) -> dict:
     """
     from datetime import datetime
 
-    try:
-        # TODO Sprint 3: Thay bằng real MCP client nếu dùng HTTP server
-        from mcp_server import dispatch_tool
-        result = dispatch_tool(tool_name, tool_input)
-        return {
-            "tool": tool_name,
-            "input": tool_input,
-            "output": result,
-            "error": None,
-            "timestamp": datetime.now().isoformat(),
-        }
+     try:
+        # Khởi tạo HTTP Client và Session
+        async with HttpClient(server_url) as client:
+            async with ClientSession(client) as session:
+                # Initialize session trước khi gọi tool
+                await session.initialize()
+                
+                # Gọi tool thông qua session chuẩn của MCP
+                result = await session.call_tool(tool_name, tool_input)
+                
+                return {
+                    "tool": tool_name,
+                    "input": tool_input,
+                    "output": result.content, # MCP trả về content list
+                    "error": None,
+                    "timestamp": datetime.now().isoformat(),
+                }
     except Exception as e:
         return {
             "tool": tool_name,
             "input": tool_input,
             "output": None,
-            "error": {"code": "MCP_CALL_FAILED", "reason": str(e)},
+            "error": {"code": "MCP_HTTP_CALL_FAILED", "reason": str(e)},
             "timestamp": datetime.now().isoformat(),
         }
 
@@ -77,10 +87,9 @@ def analyze_policy(task: str, chunks: list) -> dict:
     Returns:
         dict with: policy_applies, policy_name, exceptions_found, source, rule, explanation
     """
-    task_lower = task.lower()
+     task_lower = task.lower()
     context_text = " ".join([c.get("text", "") for c in chunks]).lower()
 
-    # --- Rule-based exception detection ---
     exceptions_found = []
 
     # Exception 1: Flash Sale
@@ -114,9 +123,9 @@ def analyze_policy(task: str, chunks: list) -> dict:
     # TODO: Check nếu đơn hàng trước 01/02/2026 → v3 applies (không có docs, nên flag cho synthesis)
     policy_name = "refund_policy_v4"
     policy_version_note = ""
-    if "31/01" in task_lower or "30/01" in task_lower or "trước 01/02" in task_lower:
+    if "trước 01/02/2026" in task_lower or "31/01/2026" in task_lower or "30/01/2026" in task_lower:
+        policy_name = "refund_policy_v3"
         policy_version_note = "Đơn hàng đặt trước 01/02/2026 áp dụng chính sách v3 (không có trong tài liệu hiện tại)."
-
     # TODO Sprint 2: Gọi LLM để phân tích phức tạp hơn
     # Ví dụ:
     # from openai import OpenAI
@@ -129,6 +138,30 @@ def analyze_policy(task: str, chunks: list) -> dict:
     #     ]
     # )
     # analysis = response.choices[0].message.content
+    from openai import OpenAI
+
+def analyze_with_llm(task: str, chunks: list) -> str:
+    client = OpenAI()
+
+    response = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": "Bạn là policy analyst. Dựa vào context, xác định policy áp dụng và các exceptions."
+            },
+            {
+                "role": "user",
+                "content": f"Task: {task}\n\nContext:\n" + "\n".join([c['text'] for c in chunks])
+            }
+        ]
+    )
+
+    # Truy cập nội dung trả về từ message
+    analysis = response.choices[0].message.content
+    return analysis
+
+
 
     sources = list({c.get("source", "unknown") for c in chunks if c})
 
@@ -143,7 +176,7 @@ def analyze_policy(task: str, chunks: list) -> dict:
 
 
 # ─────────────────────────────────────────────
-# Worker Entry Point
+# Worker Entry Pointss
 # ─────────────────────────────────────────────
 
 def run(state: dict) -> dict:
