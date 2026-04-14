@@ -21,8 +21,7 @@ import sys
 import re
 from typing import Optional
 import asyncio
-from mcp import ClientSession
-from mcp.client.http import HttpClient
+import httpx
 
 WORKER_NAME = "policy_tool_worker"
 
@@ -210,7 +209,7 @@ def run(state: dict) -> dict:
     try:
         # Step 1: Nếu chưa có chunks, gọi MCP search_kb
         if not chunks and needs_tool:
-            mcp_result = _call_mcp_tool("search_kb", {"query": task, "top_k": 3})
+            mcp_result = asyncio.run(_call_mcp_tool("search_kb", {"query": task, "top_k": 3}))
             state["mcp_tools_used"].append(mcp_result)
             state["history"].append(f"[{WORKER_NAME}] called MCP search_kb")
 
@@ -224,7 +223,7 @@ def run(state: dict) -> dict:
 
         # Step 3: Nếu cần thêm info từ MCP (e.g., ticket status), gọi get_ticket_info
         if needs_tool and any(kw in task.lower() for kw in ["ticket", "p1", "jira"]):
-            mcp_result = _call_mcp_tool("get_ticket_info", {"ticket_id": "P1-LATEST"})
+            mcp_result = asyncio.run(_call_mcp_tool("get_ticket_info", {"ticket_id": "P1-LATEST"}))
             state["mcp_tools_used"].append(mcp_result)
             state["history"].append(f"[{WORKER_NAME}] called MCP get_ticket_info")
 
